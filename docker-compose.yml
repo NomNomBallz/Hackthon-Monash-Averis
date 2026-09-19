@@ -1,0 +1,26 @@
+# SDOC hackathon inbox + scoring server.
+#
+#   docker compose up --build        # serve data + score submissions
+#
+# The dataset (data_v2/) is mounted read-only at /data. The ground truth is
+# mounted SEPARATELY and privately at /secrets so it is never in the served
+# /data tree and never exposed on an endpoint (scoring reads it server-side).
+#
+# To let judges pull labels over HTTP, set REVEAL_GT=1 and a JUDGE_TOKEN.
+services:
+  inbox:
+    build: ./server
+    ports:
+      # host 8080 -> container 8000 (8000 often taken locally; change freely)
+      - "8080:8000"
+    volumes:
+      # dataset served to participants (inbox + attachments + sample_submission)
+      - ./data_v2:/data:ro
+      # ground truth held privately — scoring only, never served
+      - ./data_v2/ground_truth.json:/secrets/ground_truth.json:ro
+    environment:
+      DATA_DIR: /data
+      GROUND_TRUTH: /secrets/ground_truth.json
+      # REVEAL_GT: "1"            # uncomment to enable GET /ground_truth
+      # JUDGE_TOKEN: "change-me"  # and require this token header
+    restart: unless-stopped
