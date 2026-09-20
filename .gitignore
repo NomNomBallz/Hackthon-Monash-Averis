@@ -3,3 +3,7 @@ __pycache__/
 *.pyc
 .pytest_cache/
 extracted_data_sample.json
+outputs/
+venv/
+.venv/
+
