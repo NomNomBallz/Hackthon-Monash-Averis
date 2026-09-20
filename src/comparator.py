@@ -28,11 +28,9 @@ PLACEHOLDERS = {"TBA", "???", "_______", "NONE", "NULL", "N/A", "NA", ""}
 def _initialize_groq_clients() -> itertools.cycle:
     """cycles through all available Groq API keys."""
     keys = [
-        os.getenv("GROQ_API_KEY_1"),
-        os.getenv("GROQ_API_KEY_2"),
-        os.getenv("GROQ_API_KEY_3"),
-        os.getenv("GROQ_API_KEY_4"),
-        os.getenv("GROQ_API_KEY")
+        os.getenv("GROQ_API_KEY_1B"),
+        os.getenv("GROQ_API_KEY_2B"),
+        os.getenv("GROQ_API_KEY_B")
     ]
     valid_keys = [k for k in keys if k and k.strip()]
     if not valid_keys:
