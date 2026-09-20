@@ -1,0 +1,69 @@
+Processing email_001 | Subject: TO CONFIRM DOCS _ 5RSG-00133 _ CALLAO_PERU _ ...
+⚡ FAST-PATH: Trivial match detected in 0.0s (Bypassing LLM tokens)
+Final Evaluation Payload:
+{
+  "category": "BL_COMPARISON",
+  "status": "OK",
+  "review_reason": null,
+  "has_defect": false,
+  "defect_fields": []
+}
+--------------------------------------------------
+
+▶️ Processing email_002 | Subject: RE_ LOCAL CHARGES FOB - KARGOSMAR - 5AKR-6184...
+Final Evaluation Payload:
+{
+  "category": "GENERAL",
+  "status": null,
+  "review_reason": null,
+  "has_defect": null,
+  "defect_fields": []
+}
+--------------------------------------------------
+
+▶️ Processing email_003 | Subject: RE_ TO CONFIRM DOCS _ 5AAT-03056 _ AQABA_JORD...
+Final Evaluation Payload:
+{
+  "category": "BL_COMPARISON",
+  "status": "NEEDS_REVIEW",
+  "review_reason": "missing_attachment",
+  "has_defect": false,
+  "defect_fields": []
+}
+--------------------------------------------------
+
+▶️ Processing email_004 | Subject: REQUEST BL DRAFT _ PO 26067_ COATED IVORY BOA...
+🤖 AI DEBUG LOG: Step 1: Compare shipper – identical strings after ignoring case and punctuation.
+Step 2: Compare consignee – SI has "EAST BRIGHT FZ-LLC" while BL has "UAB NOVAKOPA"; not matching.
+Step 3: Compare notify_party – SI has "EAST BRIGHT FZ-LLC" while BL has "UAB NOVAKOPA"; not matching.
+Step 4: Compare port_of_loading – both "NANTONG, CHINA (CNNTG)"; match.
+Step 5: Compare port_of_discharge – both "KARACHI, PAKISTAN (PKKHI)"; match.
+Step 6: Compare container_count – both 6; match.
+Step 7: Compare gross_weight_kg – both 131058.0; match.
+Conclusion: Two fields mismatch: consignee and notify_party.
+Result: MISMATCH | Processed in: 1.23s
+
+Final Evaluation Payload:
+{
+  "category": "BL_COMPARISON",
+  "status": "MISMATCH",
+  "review_reason": null,
+  "has_defect": true,
+  "defect_fields": [
+    "consignee",
+    "notify_party"
+  ]
+}
+--------------------------------------------------
+
+▶️ Processing email_005 | Subject: RE_ Draft BL INDO SUKSES 65 V.51NW1 SINGAPORE...
+⚡ FAST-PATH: Trivial match detected in 0.0s (Bypassing LLM tokens)
+Final Evaluation Payload:
+{
+  "category": "BL_COMPARISON",
+  "status": "OK",
+  "review_reason": null,
+  "has_defect": false,
+  "defect_fields": []
+}
+--------------------------------------------------

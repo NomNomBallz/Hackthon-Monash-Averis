@@ -1,0 +1,40 @@
+{
+  "email_001": {
+    "category": "BL_COMPARISON",
+    "status": "OK",
+    "review_reason": null,
+    "has_defect": false,
+    "defect_fields": []
+  },
+  "email_002": {
+    "category": "GENERAL",
+    "status": null,
+    "review_reason": null,
+    "has_defect": null,
+    "defect_fields": []
+  },
+  "email_003": {
+    "category": "BL_COMPARISON",
+    "status": "NEEDS_REVIEW",
+    "review_reason": "missing_attachment",
+    "has_defect": false,
+    "defect_fields": []
+  },
+  "email_004": {
+    "category": "BL_COMPARISON",
+    "status": "MISMATCH",
+    "review_reason": null,
+    "has_defect": true,
+    "defect_fields": [
+      "consignee",
+      "notify_party"
+    ]
+  },
+  "email_005": {
+    "category": "BL_COMPARISON",
+    "status": "OK",
+    "review_reason": null,
+    "has_defect": false,
+    "defect_fields": []
+  }
+}
