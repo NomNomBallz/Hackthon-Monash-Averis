@@ -1,0 +1,9 @@
+groq
+google-genai
+pypdfium2
+pdfplumber
+python-docx
+pandas
+openpyxl
+pydantic
+python-dotenv
