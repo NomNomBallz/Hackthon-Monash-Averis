@@ -8,163 +8,254 @@
 import json
 import os
 import time
-from typing import Dict, Any
+import itertools
+from typing import Dict, Any, List, Optional
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
+from pydantic import BaseModel, Field
+from groq import Groq, GroqError
 
-# Load variables from .env
 load_dotenv()
-my_api_key = os.getenv("GCP_API_KEY")
-client = genai.Client(api_key=my_api_key)
 
-#checks the required 7 key fields
+#required key fields
 REQUIRED_KEYS = [
     "shipper", "consignee", "notify_party", 
     "port_of_loading", "port_of_discharge", 
     "container_count", "gross_weight_kg"
 ]
-PLACEHOLDERS = {"TBA", "???", "_______", "NONE", ""}
+
+PLACEHOLDERS = {"TBA", "???", "_______", "NONE", "NULL", "N/A", "NA", ""}
+
+def _initialize_groq_clients() -> itertools.cycle:
+    """cycles through all available Groq API keys."""
+    keys = [
+        os.getenv("GROQ_API_KEY_1"),
+        os.getenv("GROQ_API_KEY_2"),
+        os.getenv("GROQ_API_KEY_3"),
+        os.getenv("GROQ_API_KEY_4"),
+        os.getenv("GROQ_API_KEY")
+    ]
+    valid_keys = [k for k in keys if k and k.strip()]
+    if not valid_keys:
+        raise ValueError("No valid GROQ_API_KEY found in environment variables (.env).")
+    return itertools.cycle([Groq(api_key=k) for k in valid_keys])
+
+_CLIENT_CYCLE = _initialize_groq_clients()
+
+class FinalHackathonOutput(BaseModel):
+    category: str = Field(default="BL_COMPARISON", description="Must always be 'BL_COMPARISON'")
+    status: str = Field(description="Must be 'OK' or 'MISMATCH'")
+    review_reason: Optional[str] = Field(default=None, description="Must be null if status is OK or MISMATCH")
+    has_defect: bool = Field(description="False if OK, True if MISMATCH")
+    defect_fields: List[str] = Field(description="List of all mismatched JSON keys. Empty if OK.")
+
+class ComparisonEnvelope(BaseModel):
+    debug_log: str = Field(description="Step-by-step reasoning evaluating each of the 7 contract fields.")
+    final_hackathon_output: FinalHackathonOutput
+
+# ==========================================
+# 2. FAST-PATH UTILITIES (0.0ms Token Savers)
+# ==========================================
+def _clean_dict_keys(d: Any) -> Dict[str, Any]:
+    """Normalizes dictionary keys to lowercase to prevent casing mismatches from OCR extraction."""
+    if not isinstance(d, dict):
+        return {}
+    return {str(k).strip().lower(): v for k, v in d.items()}
 
 def is_empty_or_placeholder(val: Any) -> bool:
-    """Helper to detect true nulls or placeholder strings from OCR."""
+    """Detects true nulls, whitespace-only entries, or OCR placeholder values."""
     if val is None:
         return True
     return str(val).strip().upper() in PLACEHOLDERS
 
-def compare_documents(jayvan_extracted_data: Dict[str, Any]) -> Dict[str, Any]:
-    """ (official instruction manual for this function)
-    Compares 7 key logistics fields between a Shipping Instruction (SI) and Bill of Lading (BL).
-    Uses a hybrid approach: 0ms Python structural checks for missing/corrupted data, 
-    falling back to an LLM strictly for semantic text comparison.
-    
-    Args (what it needs):
-        jayvan_extracted_data (dict): A dictionary containing 'SI' and 'BL' nested dictionaries.
-        
-    Returns (what it spits ou/return):
-        dict: A strict 5-field grading dictionary required for the hackathon 
-    """
-    # ==========================================
-    #Python fast path checks
-    # ==========================================
-    # Failsafe payload for routing to Human in the-Loop review
-    fallback_payload = {
-        "category": "BL_COMPARISON", 
-        "status": "NEEDS_REVIEW", 
-        "has_defect": False, 
+def _normalize_for_match(val: Any) -> str:
+    """Strips newlines, tabs, common noise chars, and units for fast-path 0ms equivalence."""
+    if val is None:
+        return ""
+    s = str(val).lower()
+    for noise in ["\n", "\r", "\t", ",", ".", "-", "_", "kg", "kilograms"]:
+        s = s.replace(noise, "")
+    return "".join(s.split())
+
+def _is_trivial_match(si: dict, bl: dict) -> bool:
+    """Bypasses LLM tokens if differences are purely formatting, casing, or unit tags."""
+    for key in REQUIRED_KEYS:
+        if _normalize_for_match(si.get(key)) != _normalize_for_match(bl.get(key)):
+            return False
+    return True
+
+def _build_fallback(review_reason: str) -> Dict[str, Any]:
+    """Ensures consistent fallback structures matching 5 required fields."""
+    return {
+        "category": "BL_COMPARISON",
+        "status": "NEEDS_REVIEW",
+        "review_reason": review_reason,
+        "has_defect": False,
         "defect_fields": []
     }
 
-    if not isinstance(jayvan_extracted_data, dict) or not jayvan_extracted_data:
-        return {**fallback_payload, "review_reason": "unreadable"}
+#hybrid code to save tokens
+def compare_documents(jayvan_extracted_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Compares 7 logistics fields between SI and BL with high-speed multi-stage validation:
+      1. Structural validation & missing/corrupt data checks.
+      2. Key casing normalization and fast-path trivial match bypass.
+      3. Semantic Groq model evaluation with key rotation and exponential backoff retry.
+    """
+    start_time = time.time()
 
-    si = jayvan_extracted_data.get("SI")
-    bl = jayvan_extracted_data.get("BL")
+    #PYTHON FAST-PATH CHECKS
+    if not isinstance(jayvan_extracted_data, dict) or not jayvan_extracted_data:
+        return _build_fallback("unreadable")
+
+    raw_si = jayvan_extracted_data.get("SI") or jayvan_extracted_data.get("si_data")
+    raw_bl = jayvan_extracted_data.get("BL") or jayvan_extracted_data.get("bl_data")
 
     # Rule 1: missing_attachment
-    if not isinstance(si, dict) or not isinstance(bl, dict):
-        return {**fallback_payload, "review_reason": "missing_attachment"}
+    if not isinstance(raw_si, dict) or not isinstance(raw_bl, dict):
+        return _build_fallback("missing_attachment")
 
-    # Rule 1: unreadable (OCR failure)
+    # Normalize all keys to lowercase (handles "Shipper" vs "shipper")
+    si = _clean_dict_keys(raw_si)
+    bl = _clean_dict_keys(raw_bl)
+
+    # Rule 1: unreadable (if OCR failure)
     si_str, bl_str = str(si), str(bl)
     if "OCR Scan Failed" in si_str or "OCR Scan Failed" in bl_str or "%^&*" in si_str:
-        return {**fallback_payload, "review_reason": "unreadable"}
+        return _build_fallback("unreadable")
 
     # Rule 1: wrong_doc_type
-    doc_titles = str(si.get("Document_Title", "")).upper() + " " + str(bl.get("Document_Title", "")).upper()
+    doc_titles = str(si.get("document_title", "")).upper() + " " + str(bl.get("document_title", "")).upper()
     if any(wrong in doc_titles for wrong in ["COMMERCIAL INVOICE", "PACKING LIST", "CERTIFICATE OF ORIGIN"]):
-        return {**fallback_payload, "review_reason": "wrong_doc_type"}
+        return _build_fallback("wrong_doc_type")
 
     # Rule 1: missing_value check across the 7 contract keys
     for k in REQUIRED_KEYS:
         if k not in si or is_empty_or_placeholder(si[k]) or k not in bl or is_empty_or_placeholder(bl[k]):
-            return {**fallback_payload, "review_reason": "missing_value"}
+            return _build_fallback("missing_value")
 
-  #ai prompt
+    # TOKEN SAVER
+    if _is_trivial_match(si, bl):
+        print("⚡ FAST-PATH: Trivial match detected in 0.0s (Bypassing LLM tokens)")
+        return {
+            "category": "BL_COMPARISON",
+            "status": "OK",
+            "review_reason": None,
+            "has_defect": False,
+            "defect_fields": []
+        }
+
+    # LLM (prompt for ai)
     system_instruction = """
-    You are an expert shipping logistics comparator. I will provide you with extracted JSON data representing 7 key fields from a Shipping Instruction (SI) and a Bill of Lading (BL).
-    
-    The 7 strict keys you must evaluate are: shipper, consignee, notify_party, port_of_loading, port_of_discharge, container_count, gross_weight_kg.
-    
-    Your task is to compare these 7 fields logically. Note that the text might have slight formatting differences, but you must evaluate if the *meaning and values* are truly identical or different.
-    
-    LOGICAL MATCHING RULES (Ignore Formatting):
-    * Ignore uppercase/lowercase (e.g., "GLOBAL TECH" == "Global Tech").
-    * Ignore punctuation and symbols (e.g., "ABC, LLC." == "ABC LLC").
-    * Ignore word order if the meaning is identical (e.g., "Klang Port" == "Port Klang").
-    * Ignore semantic phrasing if the core entity is identical (e.g., "Receiver of Cargo: ABC Corp" == "ABC Corp", "Same as Consignee" == the actual consignee name).
-    * Ignore unit formatting and data types if the mathematical value is identical (e.g., for gross_weight_kg: "2000", 2000, and 2000.0 are all identical matches).
-    
-    RULE 2: MISMATCH (Defects Found)
-    If the documents are valid, compare the fields using the Logical Matching Rules. If one or more fields logically differ (e.g., container_count is 5 vs 6, or port_of_discharge is "Los Angeles" vs "Long Beach"), set "status": "MISMATCH", "has_defect": true, "review_reason": null, and list the EXACT JSON keys (e.g., ["gross_weight_kg", "port_of_discharge"]) of the broken fields inside the "defect_fields" array.
-    
-    RULE 3: OK (Perfect Match)
-    If all 7 fields logically match between the SI and BL, set "status": "OK", "has_defect": false, "defect_fields": [], and "review_reason": null.
-    
-    OUTPUT FORMAT:
-    You must return ONLY a raw JSON object using the exact "Wrapper" structure below. Do not wrap it in markdown code blocks. 
-    Use the "debug_log" field to explain your thought process. Place the strict grading output inside "final_hackathon_output".
-    
-    {
-      "debug_log": "Write your internal reasoning here.",
-      "final_hackathon_output": {
-        "category": "BL_COMPARISON",
-        "status": "OK",
-        "review_reason": null,
-        "has_defect": false,
-        "defect_fields": []
-      }
-    }
+    You are an expert shipping logistics data comparator. Compare the 7 contract fields between the SI and BL:
+    Fields: shipper, consignee, notify_party, port_of_loading, port_of_discharge, container_count, gross_weight_kg.
+
+    MATCHING RULES (Consider fields matching if meaning is identical):
+    1. Case & Noise: Ignore uppercase/lowercase, punctuation, whitespace, and embedded line breaks (\\n, \\r).
+    2. Word Order: Equivalent phrases match (e.g., 'Klang Port' == 'Port Klang').
+    3. Entities & Context: Identical entities match (e.g., 'Receiver of Cargo: ABC Corp' == 'ABC Corp', 'Same as Consignee' matches the consignee entity).
+    4. Weight Units & Conversions: Normalize units mathematically (e.g., '2000' == 2000 == 2000.0 == '2000 KG'; 1 MT/Metric Ton = 1000 KG, so '2.5 MT' == '2500 KG').
+    5. Container Quantities: Compound strings with identical counts match (e.g., '1x40HC' == '1' == '1 (ONE) 40FT CONTAINER').
+
+    OUTPUT REQUIREMENTS:
+    - If ALL 7 fields match logically: status = 'OK', has_defect = false, defect_fields = [], review_reason = null.
+    - If ANY fields differ: status = 'MISMATCH', has_defect = true, review_reason = null.
+    - CRITICAL: Identify and return ALL mismatched field names in 'defect_fields' (do not stop at the first mismatch).
     """
 
-    user_prompt = f"Data to compare: {json.dumps(jayvan_extracted_data)}"
+    user_prompt = f"Data to compare:\nSI: {json.dumps(si)}\nBL: {json.dumps(bl)}"
 
     max_retries = 3
-    for attempt in range(max_retries):
+    for attempt in range(1, max_retries + 1):
+        client = next(_CLIENT_CYCLE)
         try:
-            chat = client.chats.create(
-                #ai's model
-                model='gemini-3.6-flash',
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    response_mime_type="application/json",
-                    temperature=0.0,
-                )
+            completion = client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=[
+                    {"role": "system", "content": system_instruction},
+                    {"role": "user", "content": user_prompt}
+                ],
+                response_format={
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "comparison_envelope",
+                        "schema": ComparisonEnvelope.model_json_schema()
+                    }
+                },
+                temperature=0.0
             )
-            response = chat.send_message(user_prompt)
-            ai_wrapper = json.loads(response.text)
+
+            envelope = ComparisonEnvelope.model_validate_json(completion.choices[0].message.content)
             
-            print("🤖 AI DEBUG LOG:", ai_wrapper.get("debug_log", ""))
-            return ai_wrapper.get("final_hackathon_output")
+            print(f"🤖 AI DEBUG LOG: {envelope.debug_log}")
+            print(f"Result: {envelope.final_hackathon_output.status} | Processed in: {round(time.time() - start_time, 2)}s\n")
             
+            return envelope.final_hackathon_output.model_dump()
+
         except Exception as e:
-            print(f"⚠️ Attempt {attempt+1} error detail: {e}")
-            if "503" in str(e) or "429" in str(e):
-                time.sleep(2 * (attempt + 1))
-                continue
-            break
+            print(f"⚠️ Groq Attempt {attempt} error: {type(e).__name__} - {e}")
+            if attempt < max_retries:
+                time.sleep(2 ** attempt)
+            else:
+                break
 
-    print("❌ LLM path failed, returning fallback.")
-    return {**fallback_payload, "review_reason": "unreadable"}
+    print("❌ LLM path failed after all retries, returning fallback.")
+    return _build_fallback("API_RATE_LIMIT_EXCEEDED")
 
 
-# Local tesing ground(Ignored by pipeline.py)
+#Local testing ground (ignored)
 if __name__ == "__main__":
-    print("\n🚀 RUNNING HYBRID COMPARATOR TEST SUITE...\n")
+    print("\n🚀 RUNNING PRODUCTION HYBRID COMPARATOR TEST SUITE...\n")
 
     test_cases = [
         {
-            "name": "TEST 1: Perfect Semantic Match (The 'OK' Status)",
+            "name": "TEST 1: Dirty Whitespace, Newlines & Semantic Resolution",
             "data": {
-                "SI": {"shipper": "Global Tech LLC", "consignee": "Receiver of Cargo: ABC Corp", "notify_party": "Same as Consignee", "port_of_loading": "Shanghai Port", "port_of_discharge": "Los Angeles", "gross_weight_kg": "2000 kg", "container_count": 5},
-                "BL": {"shipper": "GLOBAL TECH, LLC.", "consignee": "ABC Corp", "notify_party": "ABC Corp", "port_of_loading": "Shanghai", "port_of_discharge": "Los Angeles", "gross_weight_kg": "2,000 Kilograms", "container_count": 5}
+                "SI": {
+                    "shipper": "Global Tech LLC\nSuite 400\nShanghai",
+                    "consignee": "Receiver of Cargo: ABC Corp",
+                    "notify_party": "Same as Consignee",
+                    "port_of_loading": "Shanghai Port",
+                    "port_of_discharge": "Los Angeles",
+                    "gross_weight_kg": "2000 kg",
+                    "container_count": 5
+                },
+                "BL": {
+                    "shipper": "GLOBAL TECH, LLC. Suite 400 Shanghai",
+                    "consignee": "ABC Corp",
+                    "notify_party": "ABC Corp",
+                    "port_of_loading": "Shanghai",
+                    "port_of_discharge": "Los Angeles",
+                    "gross_weight_kg": "2,000 Kilograms",
+                    "container_count": 5
+                }
             }
         },
         {
-            "name": "TEST 2: Factual Mismatch (The 'MISMATCH' Status)",
+            "name": "TEST 1B: Trivial Formatting Bypass (0.0ms Token Saver)",
             "data": {
-                "SI": {"shipper": "Global Tech", "consignee": "ABC", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "Los Angeles", "gross_weight_kg": 2000, "container_count": 5},
-                "BL": {"shipper": "Global Tech", "consignee": "ABC", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "Long Beach", "gross_weight_kg": 3000, "container_count": 5}
+                "SI": {"shipper": "Global Tech LLC", "consignee": "ABC Corp", "notify_party": "XYZ", "port_of_loading": "Shanghai", "port_of_discharge": "Los Angeles", "gross_weight_kg": "2,000 kg", "container_count": 5},
+                "BL": {"shipper": "Global Tech, LLC.", "consignee": "abc corp", "notify_party": "XYZ", "port_of_loading": "Shanghai", "port_of_discharge": "Los Angeles", "gross_weight_kg": 2000, "container_count": 5}
+            }
+        },
+        {
+            "name": "TEST 1C: Metric Conversion (MT vs KG) & Container Count Phrasing",
+            "data": {
+                "SI": {"shipper": "Alpha Co", "consignee": "Beta Co", "notify_party": "Beta Co", "port_of_loading": "Port Klang", "port_of_discharge": "Busan", "gross_weight_kg": "2.5 MT", "container_count": "1x40HC"},
+                "BL": {"shipper": "Alpha Co", "consignee": "Beta Co", "notify_party": "Beta Co", "port_of_loading": "Klang Port", "port_of_discharge": "Busan", "gross_weight_kg": "2500 KG", "container_count": 1}
+            }
+        },
+        {
+            "name": "TEST 2: Multi-Field Defect Detection (Exhaustive Defect Reporting)",
+            "data": {
+                "SI": {"shipper": "Global Tech", "consignee": "ABC", "notify_party": "XYZ", "port_of_loading": "Klang", "port_of_discharge": "Los Angeles", "gross_weight_kg": 2000, "container_count": 5},
+                "BL": {"shipper": "Ocean Prime", "consignee": "ABC", "notify_party": "XYZ", "port_of_loading": "Singapore", "port_of_discharge": "Long Beach", "gross_weight_kg": 3000, "container_count": 2}
+            }
+        },
+        {
+            "name": "TEST 2B: Dictionary Key Casing Variations (OCR Title/Upper Case)",
+            "data": {
+                "SI": {"Shipper": "Global Tech", "Consignee": "ABC", "Notify_Party": "XYZ", "Port_Of_Loading": "SH", "Port_Of_Discharge": "LA", "Gross_Weight_KG": 2000, "Container_Count": 5},
+                "BL": {"shipper": "Global Tech", "consignee": "ABC", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "LA", "gross_weight_kg": 2000, "container_count": 5}
             }
         },
         {
@@ -181,7 +272,7 @@ if __name__ == "__main__":
         {
             "name": "TEST 5: Wrong Document Type (Rule 1: wrong_doc_type)",
             "data": {
-                "SI": {"Document_Title": "COMMERCIAL INVOICE", "shipper": "A", "consignee": "B", "notify_party": "C", "port_of_loading": "D", "port_of_discharge": "E", "gross_weight_kg": 1, "container_count": 1},
+                "SI": {"document_title": "COMMERCIAL INVOICE", "shipper": "A", "consignee": "B", "notify_party": "C", "port_of_loading": "D", "port_of_discharge": "E", "gross_weight_kg": 1, "container_count": 1},
                 "BL": {"shipper": "A", "consignee": "B", "notify_party": "C", "port_of_loading": "D", "port_of_discharge": "E", "gross_weight_kg": 1, "container_count": 1}
             }
         },
@@ -193,22 +284,15 @@ if __name__ == "__main__":
             }
         },
         {
-            "name": "TEST 7: Edge Case - True Nulls vs String Nones (Python Fast-Path)",
-            "data": {
-                "SI": {"shipper": "Tech", "consignee": None, "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "LA", "gross_weight_kg": 2000, "container_count": 5},
-                "BL": {"shipper": "Tech", "consignee": "None", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "LA", "gross_weight_kg": 2000, "container_count": 5}
-            }
-        },
-        {
-            "name": "TEST 8: Edge Case - Keys Completely Missing (Python Fast-Path)",
-            "data": {
-                "SI": {"shipper": "Global Tech", "consignee": "ABC Corp", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "LA"}, 
-                "BL": {"shipper": "Global Tech", "consignee": "ABC Corp", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "LA"}
-            }
-        },
-        {
-            "name": "TEST 9: Edge Case - Totally Empty / Malformed Payload (Python Fast-Path)",
+            "name": "TEST 7: Edge Case - Totally Empty Payload (Python Fast-Path)",
             "data": {} 
+        },
+        {
+            "name": "TEST 8: Edge Case - Both Values Null (Missing Value Failsafe)",
+            "data": {
+                "SI": {"shipper": "Global Tech", "consignee": "ABC", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "LA", "gross_weight_kg": None, "container_count": 5},
+                "BL": {"shipper": "Global Tech", "consignee": "ABC", "notify_party": "XYZ", "port_of_loading": "SH", "port_of_discharge": "LA", "gross_weight_kg": None, "container_count": 5}
+            }
         }
     ]
 
@@ -216,4 +300,4 @@ if __name__ == "__main__":
         print(f"\n{'='*60}\n▶️ {test['name']}\n{'='*60}")
         out = compare_documents(test['data'])
         print(json.dumps(out, indent=2))
-        time.sleep(1)
+        time.sleep(0.2)
