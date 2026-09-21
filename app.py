@@ -492,8 +492,8 @@ with t3:
 
 with t4:
     st.subheader(t("h_rep"))
-    tiles = "".join(f'<div class="tile"><b>{n}</b><span>{k.replace("_"," ").lower()}</span></div>'
-                    for k, n in s["by_status"].items())
+    tiles = "".join(f'<div class="tile"><b>{n}</b><span>{str(k).replace("_"," ").lower() if k else "n/a"}</span></div>'
+                for k, n in s["by_status"].items())
     st.markdown(f'<div class="tiles">{tiles}</div>', unsafe_allow_html=True)
     st.markdown(f'<div class="tiles"><div class="tile b"><b>{s["reviewed"]}</b>'
                 f'<span>{t("decided")}</span></div></div>', unsafe_allow_html=True)
