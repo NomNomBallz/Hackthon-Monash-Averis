@@ -1,6 +1,6 @@
 Video Demo Link:
 
 
-Slide Deck Link: https://docs.google.com/presentation/d/1e67yCczeRVWvoPMroP3wBN7r8c2oDwvfwCctUbdT8_s/edit?usp=sharing 
+Slide Deck Link: https://drive.google.com/file/d/1W8lKjVMUin_-UBZnLszV9LQTx8Jz1R9G/view?usp=sharing
 
 Live prototype: https://hackthon-monash-averis-project-velox.streamlit.app 
