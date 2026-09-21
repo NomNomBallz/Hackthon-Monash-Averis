@@ -67,3 +67,13 @@ Final Evaluation Payload:
   "defect_fields": []
 }
 --------------------------------------------------
+
+Things to do:
+
+Classifier (Ryan)	
+28 BL emails routed to GENERAL	
+Soften the classifier prompt or heuristics so borderline emails with 2 attachments default to BL_COMPARISON rather than GENERAL.
+
+Edge Cases (Barry)
+126 emails escalated vs 20 ground truth
+Loosen missing_value so minor missing or non-critical empty fields don't immediately trigger NEEDS_REVIEW.

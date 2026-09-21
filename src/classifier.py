@@ -46,7 +46,13 @@ class EmailClassifier:
         if any(word in full_text for word in suspicious_words):
             return "SPAM"
 
-        # 2. Subject Exact Keywords
+        # 2. THE ATTACHMENT SHORTCUT
+        # If there are 1 or more attachments, assume it requires BL/SI Comparison
+        attachments = email_data.get('attachments', [])
+        if len(attachments) > 0:
+            return "BL_COMPARISON"
+
+        # 3. Subject Exact Keywords
         if any(phrase in subject for phrase in ["CUST SI", "REQUEST SI", "SI NEEDED", "SI -"]):
             return "SI_REQUEST"
             
