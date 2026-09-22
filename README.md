@@ -15,8 +15,11 @@ pip install -r requirements.txt
 GCP_API_KEY=your api key
 
 GROQ_API_KEY_1= your api key
+
 GROQ_API_KEY_2= your api key
+
 GROQ_API_KEY_3= your api key
+
 GROQ_API_KEY = your api key
 
 
