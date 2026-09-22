@@ -61,7 +61,7 @@ To elaborate on how our system aims to solve these issues, we'll be breaking dow
 
 4. Escalation: Lastly, emails that reach this stage are emails that require human intervention and review. If a file happens to be unreadable, corrupted, or contain any sort of major error that renders it unextractable, it will be escalated to a human for review. This ensures that time is not wasted on meaningless emails, and only the most important errors get brought to the attention of a human.
 
-**AI and cloud infrastructure integration **
+**AI and cloud infrastructure integration**
 
 Velox uses multiple AI models that are hosted through the cloud in order to ensure scalability and minimal processing power. These AI models are used through the usage of multiple API keys that cycle through each other in order to ensure that the per minute limit is not hit before the emails finish the entire process cycle. 
 
