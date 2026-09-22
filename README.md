@@ -24,7 +24,9 @@ GROQ_API_KEY = your api key
 
 
 GROQ_API_KEY_B=your api key
+
 GROQ_API_KEY_1B=your api key
+
 GROQ_API_KEY_2B=your api key
 
 
