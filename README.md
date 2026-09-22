@@ -7,8 +7,9 @@ Live prototype: https://hackthon-monash-averis-project-velox.streamlit.app
 
 
 # HOW TO SETUP
-# 1. Run these commands:
+# 1. Run these commands after cloning:
 pip install --upgrade pip
+
 pip install -r requirements.txt
 
 # 2. Create a .env file and paste these in:
