@@ -32,10 +32,12 @@ GROQ_API_KEY_2B=your api key
 
 # 3. Run the code
 To scan all the inbox emails and run the classifier, extractor and comparator module run this in the terminal:
+
 python pipeline.py
 
 # 4.To see the User Interface you can either:
 Run this in the terminal(localhost, uses local submission.json result):
+
 streamlit run app.py
 
 OR
