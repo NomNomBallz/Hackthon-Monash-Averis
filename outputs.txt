@@ -1,0 +1,111 @@
+
+
+💾 Saved full predictions to submission.json (520 entries).
+
+📤 Posting results to evaluation server...
+
+============================================================
+🏆 EVALUATION SCORE REPORT
+============================================================
+{
+  "stage1": {
+    "accuracy": 0.8865384615384615,
+    "macro_f1": 0.8174084007689888,
+    "rule_pct": null,
+    "per": {
+      "BL_COMPARISON": {
+        "tp": 211,
+        "fp": 0,
+        "fn": 9
+      },
+      "SI_REQUEST": {
+        "tp": 125,
+        "fp": 0,
+        "fn": 0
+      },
+      "INVOICE_QUERY": {
+        "tp": 52,
+        "fp": 9,
+        "fn": 23
+      },
+      "GENERAL": {
+        "tp": 51,
+        "fp": 50,
+        "fn": 9
+      },
+      "SPAM": {
+        "tp": 22,
+        "fp": 0,
+        "fn": 18
+      }
+    },
+    "confusion": {
+      "BL_COMPARISON": {
+        "BL_COMPARISON": 211,
+        "GENERAL": 9
+      },
+      "INVOICE_QUERY": {
+        "GENERAL": 23,
+        "INVOICE_QUERY": 52
+      },
+      "SI_REQUEST": {
+        "SI_REQUEST": 125
+      },
+      "GENERAL": {
+        "GENERAL": 51,
+        "INVOICE_QUERY": 9
+      },
+      "SPAM": {
+        "GENERAL": 18,
+        "SPAM": 22
+      }
+    }
+  },
+  "stage3": {
+    "defect_precision": 1.0,
+    "defect_recall": 0.8043478260869565,
+    "defect_f1": 0.891566265060241,
+    "field_f1": 0.8837209302325582,
+    "exact_match_rate": 0.955,
+    "doc_total": 200
+  },
+  "reliability": {
+    "escalation_recall": 0.55,
+    "escalation_precision": 0.09090909090909091,
+    "escalation_f1": 0.15602836879432624,
+    "gold_review": 20,
+    "pred_review": 121,
+    "per_reason": {
+      "wrong_doc_type": {
+        "total": 5,
+        "caught": 1
+      },
+      "missing_attachment": {
+        "total": 5,
+        "caught": 4
+      },
+      "unreadable": {
+        "total": 5,
+        "caught": 5
+      },
+      "missing_value": {
+        "total": 5,
+        "caught": 1
+      }
+    }
+  },
+  "end_to_end": {
+    "success": 37,
+    "total": 46,
+    "rate": 0.8043478260869565
+  },
+  "weights": {
+    "stage1": 0.3,
+    "stage3": 0.2,
+    "end_to_end": 0.5
+  },
+  "final_score": 0.8257096862862231,
+  "n_emails": 520
+}
+============================================================
+PS C:\Users\USER\Desktop\Personal project\Hackathon-Monash-Averis> 
